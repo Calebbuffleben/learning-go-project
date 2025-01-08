@@ -1,0 +1,21 @@
+version: "3.9"
+
+services:
+  server:
+    build:
+      context: ./server
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./server/db:/app/db
+    depends_on:
+      - client
+
+  client:
+    image: node:16
+    working_dir: /app
+    volumes:
+      - ./client:/app
+    ports:
+      - "3000:3000"
+    command: ["npm", "start"]

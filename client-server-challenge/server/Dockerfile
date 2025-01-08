@@ -4,11 +4,14 @@ FROM golang:1.20 as builder
 # Set the working directory
 WORKDIR /app
 
-# Copy Go files
-COPY . .
+# Copy go.mod and go.sum files
+COPY go.mod ./
 
 # Download dependencies
 RUN go mod download
+
+# Copy the rest of the application files
+COPY . .
 
 # Build the application
 RUN go build -o main .

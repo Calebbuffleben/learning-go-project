@@ -100,19 +100,4 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create table: %v", err)
 	}
-
-	// Sample data
-	data := CurrencyData{
-		Code:       "USD",
-		CodeIn:     "BRL",
-		Name:       "Dólar Americano/Real Brasileiro",
-		High:       6.2012,
-		Low:        6.0985,
-		VarBid:     -0.0695,
-		PctChange:  -1.12,
-		Bid:        6.1098,
-		Ask:        6.1108,
-		Timestamp:  1736197196,
-		CreateDate: "2025-01-06 17:59:56",
-	}
 }

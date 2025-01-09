@@ -1,21 +1,21 @@
-version: "3.9"
+version: '3.8'
 
 services:
   server:
     build:
       context: ./server
+      dockerfile: Dockerfile
+    container_name: go-server
     ports:
-      - "8080:8080"
+      - "8080:8080" # Expose server on port 8080
     volumes:
-      - ./server/db:/app/db
+      - ./server:/app # Sync server folder for live updates
     depends_on:
-      - client
+      - db
 
-  client:
-    image: node:16
-    working_dir: /app
+  db:
+    image: nouchka/sqlite3
+    container_name: sqlite-db
     volumes:
-      - ./client:/app
-    ports:
-      - "3000:3000"
-    command: ["npm", "start"]
+      - ./db:/db # Persist database files
+    command: ["sqlite3", "/db/database.db"]

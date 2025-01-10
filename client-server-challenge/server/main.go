@@ -55,10 +55,51 @@ func server(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(currencyData)
 }
 
+func insertData(db *sql.DB, currencyData CurrencyData) error {
+	insertDataQuery := `
+	INSERT INTO currency_data (
+		code,
+		codein,
+		name,
+		high,
+		low,
+		varBid,
+		pctChange,
+		bid,
+		ask,
+		timestamp,
+		create_date
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`
+
+	_, err := db.Exec(
+		insertDataQuery,
+		currencyData.USDBRL.Code,
+		currencyData.USDBRL.Codein,
+		currencyData.USDBRL.Name,
+		currencyData.USDBRL.High,
+		currencyData.USDBRL.Low,
+		currencyData.USDBRL.VarBid,
+		currencyData.USDBRL.PctChange,
+		currencyData.USDBRL.Bid,
+		currencyData.USDBRL.Ask,
+		currencyData.USDBRL.Timestamp,
+		currencyData.USDBRL.CreateDate,
+	)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func handleRequests() {
 	http.Handle("/getCoinValue", http.HandlerFunc(server))
+	insertData(db, currencyData)
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
+
+
+
 func main() {
 	handleRequests()
 

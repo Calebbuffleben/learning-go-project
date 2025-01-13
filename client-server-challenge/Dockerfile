@@ -8,7 +8,7 @@ WORKDIR /app
 COPY server/go.mod server/go.sum ./
 
 # Download dependencies
-RUN go mod download
+RUN go mod tidy
 
 # Copy the entire server directory into the container
 COPY server/ .

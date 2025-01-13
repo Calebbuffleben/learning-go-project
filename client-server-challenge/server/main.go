@@ -30,6 +30,9 @@ type ExchangeRate struct {
 	CreateDate string `json:"create_date"`
 }
 
+// Package-level variable for the database connection
+var db *sql.DB
+
 func server(w http.ResponseWriter, r *http.Request) {
 	response, err := http.Get("https://economia.awesomeapi.com.br/json/last/USD-BRL")
 	if err != nil {
@@ -53,23 +56,24 @@ func server(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(currencyData)
+	insertData(currencyData)
 }
 
-func insertData(db *sql.DB, currencyData CurrencyData) error {
+func insertData(currencyData CurrencyData) error {
 	insertDataQuery := `
-	INSERT INTO currency_data (
-		code,
-		codein,
-		name,
-		high,
-		low,
-		varBid,
-		pctChange,
-		bid,
-		ask,
-		timestamp,
-		create_date
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`
+		INSERT INTO currency_data (
+			code,
+			codein,
+			name,
+			high,
+			low,
+			varBid,
+			pctChange,
+			bid,
+			ask,
+			timestamp,
+			create_date
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`
 
 	_, err := db.Exec(
 		insertDataQuery,
@@ -91,17 +95,14 @@ func insertData(db *sql.DB, currencyData CurrencyData) error {
 
 	return nil
 }
-
 func handleRequests() {
-	http.Handle("/getCoinValue", http.HandlerFunc(server))
-	insertData(db, currencyData)
+	http.Handle("/cotacao", http.HandlerFunc(server))
+	
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
-
-
 func main() {
-	handleRequests()
+	fmt.Println("Server started")
 
 	// Database file path
 	dbPath := "./db/database.db"
@@ -141,4 +142,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create table: %v", err)
 	}
+
+	handleRequests()
 }

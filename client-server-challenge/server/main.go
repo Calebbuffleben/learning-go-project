@@ -53,18 +53,36 @@ func server(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to parse JSON", http.StatusInternalServerError)
 		return
 	}
+	insertData(currencyData)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(currencyData)
-	insertData(currencyData)
 }
 
 func insertData(currencyData CurrencyData) error {
+	dbPath := "./db/database.db"
+
+	// Ensure the db directory exists
+	if _, err := os.Stat("./db"); os.IsNotExist(err) {
+		err = os.Mkdir("./db", os.ModePerm)
+		if err != nil {
+			log.Fatalf("Failed to create db directory: %v", err)
+		}
+	}
+
+	// Open SQLite database
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
+	}
+	defer db.Close()
+
 	if db == nil {
 		return errors.New("database connection is not initialized")
 	}
 
+	log.Println("inserting data")
 	insertDataQuery := `
 		INSERT INTO currency_data (
 			code,
@@ -80,7 +98,7 @@ func insertData(currencyData CurrencyData) error {
 			create_date
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`
 
-	_, err := db.Exec(
+	_, err = db.Exec(
 		insertDataQuery,
 		currencyData.USDBRL.Code,
 		currencyData.USDBRL.Codein,
@@ -143,7 +161,6 @@ func getData(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	var results []ExchangeRate
-
 	for rows.Next() {
 		var result ExchangeRate
 		err = rows.Scan(
@@ -219,6 +236,5 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create table: %v", err)
 	}
-
 	handleRequests()
 }

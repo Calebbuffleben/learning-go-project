@@ -1,14 +1,14 @@
 package main
 
 import (
-	"errors"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
-	"database/sql"
-	"os"	
+	"os"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -82,7 +82,6 @@ func insertData(currencyData CurrencyData) error {
 		return errors.New("database connection is not initialized")
 	}
 
-	log.Println("inserting data")
 	insertDataQuery := `
 		INSERT INTO currency_data (
 			code,
@@ -152,7 +151,7 @@ func getData(w http.ResponseWriter, r *http.Request) {
 		SELECT
 			code, codein, name, high, low, varBid, pctChange, bid, ask, timestamp, create_date 
 		FROM currency_data;`
-	
+
 	rows, err := db.Query(query)
 	if err != nil {
 		http.Error(w, "Failed to execute query", http.StatusInternalServerError)

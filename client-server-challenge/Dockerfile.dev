@@ -1,0 +1,21 @@
+FROM golang:1.21
+
+WORKDIR /app
+
+# Install Air for hot reloading
+RUN go install github.com/cosmtrek/air@v1.49.0
+
+# Copy go.mod and go.sum first to cache dependencies
+COPY server/go.mod server/go.sum ./
+
+# Download dependencies
+RUN go mod tidy
+
+# Create the db directory
+RUN mkdir -p db
+
+# Expose port 8080
+EXPOSE 8080
+
+# Run air for hot reloading
+CMD ["air", "-c", ".air.toml"] 

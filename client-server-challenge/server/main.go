@@ -9,8 +9,14 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
+)
+
+const (
+	dbPath = "./db/database.db"
+	apiURL = "https://economia.awesomeapi.com.br/json/last/USD-BRL"
 )
 
 type CurrencyData struct {
@@ -34,71 +40,137 @@ type ExchangeRate struct {
 // Package-level variable for the database connection
 var db *sql.DB
 
-func server(w http.ResponseWriter, r *http.Request) {
-	response, err := http.Get("https://economia.awesomeapi.com.br/json/last/USD-BRL")
-	if err != nil {
-		fmt.Println(err)
+// SQL queries
+const (
+	createTableSQL = `
+	CREATE TABLE IF NOT EXISTS currency_data (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		code TEXT NOT NULL,
+		codein TEXT NOT NULL,
+		name TEXT NOT NULL,
+		high REAL NOT NULL,
+		low REAL NOT NULL,
+		varBid REAL NOT NULL,
+		pctChange REAL NOT NULL,
+		bid REAL NOT NULL,
+		ask REAL NOT NULL,
+		timestamp INTEGER NOT NULL,
+		create_date TEXT NOT NULL
+	);`
+
+	insertDataSQL = `
+		INSERT INTO currency_data (
+			code, codein, name, high, low, varBid, pctChange,
+			bid, ask, timestamp, create_date
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`
+
+	getAllDataSQL = `
+		SELECT code, codein, name, high, low, varBid, pctChange,
+		       bid, ask, timestamp, create_date 
+		FROM currency_data;`
+)
+
+// Initialization function
+func init() {
+	if err := setupDatabase(); err != nil {
+		log.Fatalf("Failed to setup database: %v", err)
+	}
+}
+
+// Setup database function
+func setupDatabase() error {
+	if err := ensureDirectory("./db"); err != nil {
+		return fmt.Errorf("failed to ensure directory: %w", err)
 	}
 
+	var err error
+	db, err = sql.Open("sqlite3", dbPath)
+	if err != nil {
+		return fmt.Errorf("failed to connect to database: %w", err)
+	}
+
+	// Set connection pool settings
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(5 * time.Minute)
+
+	// Verify connection
+	if err = db.Ping(); err != nil {
+		return fmt.Errorf("failed to ping database: %w", err)
+	}
+
+	// Create table if it doesn't exist
+	if _, err = db.Exec(createTableSQL); err != nil {
+		return fmt.Errorf("failed to create table: %w", err)
+	}
+
+	return nil
+}
+
+// Ensure directory function to create the db directory if it doesn't exist
+func ensureDirectory(path string) error {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return os.Mkdir(path, os.ModePerm)
+	}
+	return nil
+}
+
+// Write JSON response function to write the JSON response to the client
+func writeJSONResponse(w http.ResponseWriter, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		http.Error(w, "Failed to encode JSON response", http.StatusInternalServerError)
+	}
+}
+
+// Handle error function to handle the error and return the error message to the client
+func handleError(w http.ResponseWriter, err error, status int, message string) {
+	log.Printf("%s: %v", message, err)
+	http.Error(w, message, status)
+}
+
+// Fetch currency handler function to fetch the currency data from the API and store it in the database
+func fetchCurrencyHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	response, err := http.Get(apiURL)
+	if err != nil {
+		handleError(w, err, http.StatusInternalServerError, "Failed to fetch currency data")
+		return
+	}
 	defer response.Body.Close()
 
 	responseData, err := io.ReadAll(response.Body)
 	if err != nil {
-		log.Fatal(err)
+		handleError(w, err, http.StatusInternalServerError, "Failed to read response data")
+		return
 	}
 
 	var currencyData CurrencyData
-	err = json.Unmarshal(responseData, &currencyData)
-	if err != nil {
-		http.Error(w, "Failed to parse JSON", http.StatusInternalServerError)
+	if err = json.Unmarshal(responseData, &currencyData); err != nil {
+		handleError(w, err, http.StatusInternalServerError, "Failed to parse JSON")
 		return
 	}
-	insertData(currencyData)
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(currencyData)
+	if err = insertData(currencyData); err != nil {
+		handleError(w, err, http.StatusInternalServerError, "Failed to store currency data")
+		return
+	}
+
+	writeJSONResponse(w, currencyData)
 }
 
+// Insert data function to insert the currency data into the database
 func insertData(currencyData CurrencyData) error {
-	dbPath := "./db/database.db"
-
-	// Ensure the db directory exists
-	if _, err := os.Stat("./db"); os.IsNotExist(err) {
-		err = os.Mkdir("./db", os.ModePerm)
-		if err != nil {
-			log.Fatalf("Failed to create db directory: %v", err)
-		}
-	}
-
-	// Open SQLite database
-	db, err := sql.Open("sqlite3", dbPath)
-	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
-	}
-	defer db.Close()
-
 	if db == nil {
 		return errors.New("database connection is not initialized")
 	}
 
-	insertDataQuery := `
-		INSERT INTO currency_data (
-			code,
-			codein,
-			name,
-			high,
-			low,
-			varBid,
-			pctChange,
-			bid,
-			ask,
-			timestamp,
-			create_date
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`
-
-	_, err = db.Exec(
-		insertDataQuery,
+	_, err := db.Exec(
+		insertDataSQL,
 		currencyData.USDBRL.Code,
 		currencyData.USDBRL.Codein,
 		currencyData.USDBRL.Name,
@@ -111,50 +183,29 @@ func insertData(currencyData CurrencyData) error {
 		currencyData.USDBRL.Timestamp,
 		currencyData.USDBRL.CreateDate,
 	)
+
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to insert data: %w", err)
 	}
 
 	return nil
 }
-func handleRequests() {
-	http.Handle("/cotacao", http.HandlerFunc(server))
-	http.Handle("/get-data", http.HandlerFunc(getData))
-	log.Fatal(http.ListenAndServe(":8080", nil))
-}
 
-func getData(w http.ResponseWriter, r *http.Request) {
-	dbPath := "./db/database.db"
-
-	// Ensure the db directory exists
-	if _, err := os.Stat("./db"); os.IsNotExist(err) {
-		err = os.Mkdir("./db", os.ModePerm)
-		if err != nil {
-			log.Fatalf("Failed to create db directory: %v", err)
-		}
-	}
-
-	// Open SQLite database
-	db, err := sql.Open("sqlite3", dbPath)
-	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
-	}
-	defer db.Close()
-
-	if db == nil {
-		http.Error(w, "database connection is not initialized", http.StatusInternalServerError)
+// Get data handler function to get the currency data from the database
+func getDataHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Query to fetch data from the database
-	query := `
-		SELECT
-			code, codein, name, high, low, varBid, pctChange, bid, ask, timestamp, create_date 
-		FROM currency_data;`
+	if db == nil {
+		handleError(w, errors.New("database not initialized"), http.StatusInternalServerError, "Database connection is not initialized")
+		return
+	}
 
-	rows, err := db.Query(query)
+	rows, err := db.Query(getAllDataSQL)
 	if err != nil {
-		http.Error(w, "Failed to execute query", http.StatusInternalServerError)
+		handleError(w, err, http.StatusInternalServerError, "Failed to execute query")
 		return
 	}
 	defer rows.Close()
@@ -176,64 +227,30 @@ func getData(w http.ResponseWriter, r *http.Request) {
 			&result.CreateDate,
 		)
 		if err != nil {
-			http.Error(w, "Failed to scan row", http.StatusInternalServerError)
+			handleError(w, err, http.StatusInternalServerError, "Failed to scan row")
 			return
 		}
 		results = append(results, result)
 	}
 
 	if err = rows.Err(); err != nil {
-		http.Error(w, "Failed to iterate over rows", http.StatusInternalServerError)
+		handleError(w, err, http.StatusInternalServerError, "Failed to iterate over rows")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(results); err != nil {
-		http.Error(w, "Failed to encode JSON", http.StatusInternalServerError)
-		return
-	}
+	writeJSONResponse(w, results)
 }
 
+// Setup routes function to setup the routes for the server
+func setupRoutes() {
+	http.HandleFunc("/cotacao", fetchCurrencyHandler)
+	http.HandleFunc("/get-data", getDataHandler)
+}
+
+// Main function to start the server
 func main() {
-	fmt.Println("Server started")
-
-	// Database file path
-	dbPath := "./db/database.db"
-
-	// Ensure the db directory exists
-	if _, err := os.Stat("./db"); os.IsNotExist(err) {
-		err = os.Mkdir("./db", os.ModePerm)
-		if err != nil {
-			log.Fatalf("Failed to create db directory: %v", err)
-		}
-	}
-
-	// Open SQLite database
-	db, err := sql.Open("sqlite3", dbPath)
-	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
-	}
+	setupRoutes()
+	fmt.Println("Server started on :8080")
 	defer db.Close()
-
-	// Create table if it doesn't exist
-	createTableQuery := `
-	CREATE TABLE IF NOT EXISTS currency_data (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		code TEXT NOT NULL,
-		codein TEXT NOT NULL,
-		name TEXT NOT NULL,
-		high REAL NOT NULL,
-		low REAL NOT NULL,
-		varBid REAL NOT NULL,
-		pctChange REAL NOT NULL,
-		bid REAL NOT NULL,
-		ask REAL NOT NULL,
-		timestamp INTEGER NOT NULL,
-		create_date TEXT NOT NULL
-	);`
-	_, err = db.Exec(createTableQuery)
-	if err != nil {
-		log.Fatalf("Failed to create table: %v", err)
-	}
-	handleRequests()
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }

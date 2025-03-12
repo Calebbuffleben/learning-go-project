@@ -11,3 +11,15 @@ services:
       - ./server/db:/app/db
     environment:
       - GO_ENV=production
+
+  go-server-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./server:/app
+      - ./server/db:/app/db
+    environment:
+      - GO_ENV=development

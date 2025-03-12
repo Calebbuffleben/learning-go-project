@@ -14,15 +14,18 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+// Constants
 const (
 	dbPath = "./db/database.db"
 	apiURL = "https://economia.awesomeapi.com.br/json/last/USD-BRL"
 )
 
+// CurrencyData struct to store the currency data
 type CurrencyData struct {
 	USDBRL ExchangeRate `json:"USDBRL"`
 }
 
+// ExchangeRate struct to store the currency data
 type ExchangeRate struct {
 	Code       string `json:"code"`
 	Codein     string `json:"codein"`
@@ -136,6 +139,7 @@ func fetchCurrencyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Fetch the currency data from the API
 	response, err := http.Get(apiURL)
 	if err != nil {
 		handleError(w, err, http.StatusInternalServerError, "Failed to fetch currency data")
@@ -143,23 +147,27 @@ func fetchCurrencyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer response.Body.Close()
 
+	// Read the response data
 	responseData, err := io.ReadAll(response.Body)
 	if err != nil {
 		handleError(w, err, http.StatusInternalServerError, "Failed to read response data")
 		return
 	}
 
+	// Parse the response data
 	var currencyData CurrencyData
 	if err = json.Unmarshal(responseData, &currencyData); err != nil {
 		handleError(w, err, http.StatusInternalServerError, "Failed to parse JSON")
 		return
 	}
 
+	// Insert the currency data into the database
 	if err = insertData(currencyData); err != nil {
 		handleError(w, err, http.StatusInternalServerError, "Failed to store currency data")
 		return
 	}
 
+	// Write the JSON response to the client
 	writeJSONResponse(w, currencyData)
 }
 
@@ -169,6 +177,7 @@ func insertData(currencyData CurrencyData) error {
 		return errors.New("database connection is not initialized")
 	}
 
+	// Insert the currency data into the database
 	_, err := db.Exec(
 		insertDataSQL,
 		currencyData.USDBRL.Code,
@@ -184,6 +193,7 @@ func insertData(currencyData CurrencyData) error {
 		currencyData.USDBRL.CreateDate,
 	)
 
+	// Handle the error if the data is not inserted
 	if err != nil {
 		return fmt.Errorf("failed to insert data: %w", err)
 	}
@@ -193,16 +203,19 @@ func insertData(currencyData CurrencyData) error {
 
 // Get data handler function to get the currency data from the database
 func getDataHandler(w http.ResponseWriter, r *http.Request) {
+	// Handle the error if the method is not GET
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
+	// Handle the error if the database is not initialized
 	if db == nil {
 		handleError(w, errors.New("database not initialized"), http.StatusInternalServerError, "Database connection is not initialized")
 		return
 	}
 
+	// Execute the query to get the currency data from the database
 	rows, err := db.Query(getAllDataSQL)
 	if err != nil {
 		handleError(w, err, http.StatusInternalServerError, "Failed to execute query")
@@ -210,8 +223,10 @@ func getDataHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
+	// Create a slice to store the currency data
 	var results []ExchangeRate
 	for rows.Next() {
+		// Create a variable to store the currency data
 		var result ExchangeRate
 		err = rows.Scan(
 			&result.Code,
@@ -226,6 +241,7 @@ func getDataHandler(w http.ResponseWriter, r *http.Request) {
 			&result.Timestamp,
 			&result.CreateDate,
 		)
+		// Handle the error if the data is not scanned
 		if err != nil {
 			handleError(w, err, http.StatusInternalServerError, "Failed to scan row")
 			return
@@ -233,11 +249,13 @@ func getDataHandler(w http.ResponseWriter, r *http.Request) {
 		results = append(results, result)
 	}
 
+	// Handle the error if the data is not iterated over
 	if err = rows.Err(); err != nil {
 		handleError(w, err, http.StatusInternalServerError, "Failed to iterate over rows")
 		return
 	}
 
+	// Write the JSON response to the client
 	writeJSONResponse(w, results)
 }
 
@@ -249,8 +267,12 @@ func setupRoutes() {
 
 // Main function to start the server
 func main() {
+	// Setup the routes
 	setupRoutes()
+	// Print the server started message
 	fmt.Println("Server started on :8080")
+	// Close the database connection
 	defer db.Close()
+	// Start the server
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }

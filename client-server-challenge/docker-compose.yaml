@@ -1,14 +1,25 @@
 version: "3.9"
 
 services:
-  go-server:
+  app:
     build:
       context: .
       dockerfile: Dockerfile
     ports:
       - "8080:8080"
     volumes:
-      - ./server:/app
       - ./server/db:/app/db
     environment:
       - GO_ENV=development
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/cotacao"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

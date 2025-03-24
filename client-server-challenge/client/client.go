@@ -7,7 +7,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"time"
 )
 
 // Define a struct to hold exchange rate data
@@ -33,17 +32,13 @@ func main() {
 		serverURL = "http://localhost:8080"
 	}
 
-	for { // Infinite loop
-		fmt.Printf("Fetching data from server at %s...\n", serverURL)
+	fmt.Printf("Fetching data from server at %s...\n", serverURL)
 
-		err := fetchCurrencyData(serverURL + "/cotacao") // Fetch currency data
-		if err != nil {                                  // If there's an error
-			log.Printf("Failed to fetch currency data: %v", err) // Log the error
-		}
-
-		// Add a small delay to prevent overwhelming the server
-		time.Sleep(10 * time.Second)
+	err := fetchCurrencyData(serverURL + "/cotacao") // Fetch currency data
+	if err != nil {                                  // If there's an error
+		log.Printf("Failed to fetch currency data: %v", err) // Log the error
 	}
+
 }
 
 // Function to fetch currency data
@@ -99,27 +94,4 @@ func saveBidToFile(bid string) error {
 
 	fmt.Println("Bid rate saved to cotacao.txt")
 	return nil
-}
-
-// Function to fetch stored data
-func fetchStoredData(url string) error {
-	resp, err := http.Get(url) // Make a GET request to the URL
-	if err != nil {            // If there's an error
-		return fmt.Errorf("failed to fetch data: %w", err) // Return the error
-	}
-	defer resp.Body.Close() // Close the response body when the function returns
-
-	body, err := io.ReadAll(resp.Body) // Read the response body
-	if err != nil {                    // If there's an error
-		return fmt.Errorf("failed to read response body: %w", err) // Return the error
-	}
-
-	var data []ExchangeRate           // Declare a slice to hold the data
-	err = json.Unmarshal(body, &data) // Unmarshal the JSON data into the slice
-	if err != nil {                   // If there's an error
-		return fmt.Errorf("failed to unmarshal JSON: %w", err) // Return the error
-	}
-
-	fmt.Printf("Fetched stored data: %+v\n", data) // Print the fetched data
-	return nil                                     // Return nil error
 }

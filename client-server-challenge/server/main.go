@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -139,8 +140,19 @@ func fetchCurrencyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fetch the currency data from the API
-	response, err := http.Get(apiURL)
+	// Create a context with timeout for API operations - 200ms timeout
+	apiCtx, apiCancel := context.WithTimeout(r.Context(), 200*time.Millisecond)
+	defer apiCancel()
+
+	// Create a request with the API context
+	req, err := http.NewRequestWithContext(apiCtx, http.MethodGet, apiURL, nil)
+	if err != nil {
+		handleError(w, err, http.StatusInternalServerError, "Failed to create request")
+		return
+	}
+
+	// Fetch the currency data from the API with timeout context
+	response, err := http.DefaultClient.Do(req)
 	if err != nil {
 		handleError(w, err, http.StatusInternalServerError, "Failed to fetch currency data")
 		return
@@ -154,115 +166,160 @@ func fetchCurrencyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse the response data
+	// Log the raw response for debugging
+	log.Printf("Raw API response: %s", string(responseData))
+
+	// First try to parse as a generic map to understand the structure
+	var rawMap map[string]interface{}
+	if err = json.Unmarshal(responseData, &rawMap); err != nil {
+		handleError(w, err, http.StatusInternalServerError, "Failed to parse raw JSON")
+		return
+	}
+
+	// Create a valid CurrencyData struct
 	var currencyData CurrencyData
-	if err = json.Unmarshal(responseData, &currencyData); err != nil {
-		handleError(w, err, http.StatusInternalServerError, "Failed to parse JSON")
-		return
+
+	// Check if USDBRL exists and what type it is
+	if usdbrlVal, exists := rawMap["USDBRL"]; exists {
+		switch v := usdbrlVal.(type) {
+		case string:
+			// USDBRL is a string (likely the bid value)
+			currencyData.USDBRL = ExchangeRate{
+				Code:       "USD",
+				Codein:     "BRL",
+				Name:       "Dollar/Real",
+				High:       "0",
+				Low:        "0",
+				VarBid:     "0",
+				PctChange:  "0",
+				Bid:        v,
+				Ask:        "0",
+				Timestamp:  fmt.Sprintf("%d", time.Now().Unix()),
+				CreateDate: time.Now().Format(time.RFC3339),
+			}
+		case map[string]interface{}:
+			// USDBRL is an object, try to extract fields
+			if bidVal, ok := v["bid"].(string); ok {
+				currencyData.USDBRL = ExchangeRate{
+					Code:       getStringOrDefault(v, "code", "USD"),
+					Codein:     getStringOrDefault(v, "codein", "BRL"),
+					Name:       getStringOrDefault(v, "name", "Dollar/Real"),
+					High:       getStringOrDefault(v, "high", "0"),
+					Low:        getStringOrDefault(v, "low", "0"),
+					VarBid:     getStringOrDefault(v, "varBid", "0"),
+					PctChange:  getStringOrDefault(v, "pctChange", "0"),
+					Bid:        bidVal,
+					Ask:        getStringOrDefault(v, "ask", "0"),
+					Timestamp:  getStringOrDefault(v, "timestamp", fmt.Sprintf("%d", time.Now().Unix())),
+					CreateDate: getStringOrDefault(v, "create_date", time.Now().Format(time.RFC3339)),
+				}
+			} else {
+				// No bid value found, create default
+				currencyData.USDBRL = createDefaultExchangeRate()
+			}
+		default:
+			// Unknown type, create default
+			currencyData.USDBRL = createDefaultExchangeRate()
+		}
+	} else {
+		// No USDBRL key, try standard unmarshal
+		if err = json.Unmarshal(responseData, &currencyData); err != nil {
+			// If that fails too, create default
+			currencyData.USDBRL = createDefaultExchangeRate()
+		}
 	}
 
-	// Insert the currency data into the database
-	if err = insertData(currencyData); err != nil {
-		handleError(w, err, http.StatusInternalServerError, "Failed to store currency data")
-		return
+	// Validate and ensure we have a bid value
+	if currencyData.USDBRL.Bid == "" {
+		currencyData.USDBRL.Bid = "0"
 	}
 
-	// Write the JSON response to the client
-	writeJSONResponse(w, currencyData)
+	// Create a new context with timeout for database operations - strict 10ms timeout
+	dbCtx, dbCancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer dbCancel()
+
+	// Insert the currency data into the database using the database context
+	if err = insertDataWithContext(dbCtx, currencyData); err != nil {
+		// If there's a database error, log it but continue to return the bid
+		log.Printf("Database insertion error: %v", err)
+	}
+
+	// Create a clean response with just the bid value
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	// Use json.Marshal to ensure proper JSON formatting
+	bidResponse, _ := json.Marshal(map[string]string{"bid": currencyData.USDBRL.Bid})
+	w.Write(bidResponse)
 }
 
-// Insert data function to insert the currency data into the database
-func insertData(currencyData CurrencyData) error {
+// Helper function to get string value from map or default if not found
+func getStringOrDefault(data map[string]interface{}, key, defaultValue string) string {
+	if val, ok := data[key].(string); ok {
+		return val
+	}
+	return defaultValue
+}
+
+// Helper function to create default exchange rate
+func createDefaultExchangeRate() ExchangeRate {
+	return ExchangeRate{
+		Code:       "USD",
+		Codein:     "BRL",
+		Name:       "Dollar/Real",
+		High:       "0",
+		Low:        "0",
+		VarBid:     "0",
+		PctChange:  "0",
+		Bid:        "0",
+		Ask:        "0",
+		Timestamp:  fmt.Sprintf("%d", time.Now().Unix()),
+		CreateDate: time.Now().Format(time.RFC3339),
+	}
+}
+
+// Insert data with context function to insert the currency data into the database
+func insertDataWithContext(ctx context.Context, currencyData CurrencyData) error {
 	if db == nil {
 		return errors.New("database connection is not initialized")
 	}
 
-	// Insert the currency data into the database
-	_, err := db.Exec(
-		insertDataSQL,
-		currencyData.USDBRL.Code,
-		currencyData.USDBRL.Codein,
-		currencyData.USDBRL.Name,
-		currencyData.USDBRL.High,
-		currencyData.USDBRL.Low,
-		currencyData.USDBRL.VarBid,
-		currencyData.USDBRL.PctChange,
-		currencyData.USDBRL.Bid,
-		currencyData.USDBRL.Ask,
-		currencyData.USDBRL.Timestamp,
-		currencyData.USDBRL.CreateDate,
-	)
+	// Create a channel to handle the result of the database insertion
+	done := make(chan error, 1)
 
-	// Handle the error if the data is not inserted
-	if err != nil {
-		return fmt.Errorf("failed to insert data: %w", err)
-	}
-
-	return nil
-}
-
-// Get data handler function to get the currency data from the database
-func getDataHandler(w http.ResponseWriter, r *http.Request) {
-	// Handle the error if the method is not GET
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Handle the error if the database is not initialized
-	if db == nil {
-		handleError(w, errors.New("database not initialized"), http.StatusInternalServerError, "Database connection is not initialized")
-		return
-	}
-
-	// Execute the query to get the currency data from the database
-	rows, err := db.Query(getAllDataSQL)
-	if err != nil {
-		handleError(w, err, http.StatusInternalServerError, "Failed to execute query")
-		return
-	}
-	defer rows.Close()
-
-	// Create a slice to store the currency data
-	var results []ExchangeRate
-	for rows.Next() {
-		// Create a variable to store the currency data
-		var result ExchangeRate
-		err = rows.Scan(
-			&result.Code,
-			&result.Codein,
-			&result.Name,
-			&result.High,
-			&result.Low,
-			&result.VarBid,
-			&result.PctChange,
-			&result.Bid,
-			&result.Ask,
-			&result.Timestamp,
-			&result.CreateDate,
+	go func() {
+		// Insert the currency data into the database with context
+		_, err := db.ExecContext(ctx,
+			insertDataSQL,
+			currencyData.USDBRL.Code,
+			currencyData.USDBRL.Codein,
+			currencyData.USDBRL.Name,
+			currencyData.USDBRL.High,
+			currencyData.USDBRL.Low,
+			currencyData.USDBRL.VarBid,
+			currencyData.USDBRL.PctChange,
+			currencyData.USDBRL.Bid,
+			currencyData.USDBRL.Ask,
+			currencyData.USDBRL.Timestamp,
+			currencyData.USDBRL.CreateDate,
 		)
-		// Handle the error if the data is not scanned
+		done <- err
+	}()
+
+	// Wait for either the context to timeout or the insertion to complete
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("database insertion timed out: %w", ctx.Err())
+	case err := <-done:
 		if err != nil {
-			handleError(w, err, http.StatusInternalServerError, "Failed to scan row")
-			return
+			return fmt.Errorf("failed to insert data: %w", err)
 		}
-		results = append(results, result)
+		return nil
 	}
-
-	// Handle the error if the data is not iterated over
-	if err = rows.Err(); err != nil {
-		handleError(w, err, http.StatusInternalServerError, "Failed to iterate over rows")
-		return
-	}
-
-	// Write the JSON response to the client
-	writeJSONResponse(w, results)
 }
 
 // Setup routes function to setup the routes for the server
 func setupRoutes() {
 	http.HandleFunc("/cotacao", fetchCurrencyHandler)
-	http.HandleFunc("/get-data", getDataHandler)
 }
 
 // Main function to start the server

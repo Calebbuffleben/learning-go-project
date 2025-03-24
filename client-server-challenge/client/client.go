@@ -41,12 +41,6 @@ func main() {
 			log.Printf("Failed to fetch currency data: %v", err) // Log the error
 		}
 
-		fmt.Println("Fetching stored data...")         // Print a message
-		err = fetchStoredData(serverURL + "/get-data") // Fetch stored data
-		if err != nil {                                // If there's an error
-			log.Printf("Failed to fetch stored data: %v", err) // Log the error
-		}
-
 		// Add a small delay to prevent overwhelming the server
 		time.Sleep(10 * time.Second)
 	}
@@ -65,14 +59,46 @@ func fetchCurrencyData(url string) error {
 		return fmt.Errorf("failed to read response body: %w", err) // Return the error
 	}
 
-	var data map[string]ExchangeRate  // Declare a map to hold the data
-	err = json.Unmarshal(body, &data) // Unmarshal the JSON data into the map
-	if err != nil {                   // If there's an error
+	// Log raw response for debugging
+	fmt.Printf("Raw response: %s\n", string(body))
+
+	// The server returns just a simple JSON with a bid field
+	var bidResponse struct {
+		Bid string `json:"bid"`
+	}
+	err = json.Unmarshal(body, &bidResponse) // Unmarshal the JSON data
+	if err != nil {                          // If there's an error
 		return fmt.Errorf("failed to unmarshal JSON: %w", err) // Return the error
 	}
 
-	fmt.Printf("Fetched currency data: %+v\n", data) // Print the fetched data
-	return nil                                       // Return nil error
+	fmt.Printf("Fetched bid rate: %s\n", bidResponse.Bid) // Print the bid rate
+	
+	// Save the bid to a file
+	err = saveBidToFile(bidResponse.Bid)
+	if err != nil {
+		return fmt.Errorf("failed to save bid to file: %w", err)
+	}
+	
+	return nil // Return nil error
+}
+
+// Function to save bid rate to a file
+func saveBidToFile(bid string) error {
+	// Create a file to save the bid rate
+	file, err := os.Create("./cotacao.txt")
+	if err != nil {
+		return fmt.Errorf("failed to create file: %w", err)
+	}
+	defer file.Close()
+
+	// Write the bid rate to the file
+	_, err = file.WriteString(fmt.Sprintf("Dólar: %s\n", bid))
+	if err != nil {
+		return fmt.Errorf("failed to write to file: %w", err)
+	}
+
+	fmt.Println("Bid rate saved to cotacao.txt")
+	return nil
 }
 
 // Function to fetch stored data

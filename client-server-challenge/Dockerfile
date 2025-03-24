@@ -22,13 +22,15 @@ RUN mkdir -p /app/client
 COPY client/go.mod /app/client/
 RUN cd /app/client && go mod tidy
 COPY client/client.go /app/client/
-RUN cd /app/client && go build -o /app/client_bin client.go
+WORKDIR /app/client
+RUN go build -o /app/client_bin client.go
+WORKDIR /app
 
 # Set permissions
 RUN chmod +x /app/server /app/client_bin
 
 # Create a startup script
-RUN echo '#!/bin/bash\necho "Starting server..."\n/app/server & SERVER_PID=$!\necho "Server started with PID $SERVER_PID"\nsleep 5\necho "Starting client..."\nSERVER_URL=http://localhost:8080 /app/client_bin & CLIENT_PID=$!\necho "Client started with PID $CLIENT_PID"\nwait' > /app/start.sh && \
+RUN echo '#!/bin/bash\necho "Starting server..."\n/app/server & SERVER_PID=$!\necho "Server started with PID $SERVER_PID"\nsleep 5\necho "Starting client..."\ncd /app/client && SERVER_URL=http://localhost:8080 /app/client_bin & CLIENT_PID=$!\necho "Client started with PID $CLIENT_PID"\nwait' > /app/start.sh && \
     chmod +x /app/start.sh
 
 # Expose port

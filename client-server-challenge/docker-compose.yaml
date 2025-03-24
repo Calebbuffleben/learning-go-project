@@ -9,6 +9,7 @@ services:
       - "8080:8080"
     volumes:
       - ./server/db:/app/db
+      - ./client:/app/client
     environment:
       - GO_ENV=development
     healthcheck:
